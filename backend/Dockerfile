@@ -9,7 +9,8 @@ WORKDIR /app
 # 注意：这里【不要】再用 --mount=type=cache,target=/root/.m2
 # （挂上 cache 会把镜像里预热好的 /root/.m2 遮住，反而要重新下载）
 COPY pom.xml settings.xml ./
-RUN mvn -s settings.xml -B -q dependency:go-offline
+# 预热镜像只缓存运行期依赖；测试依赖（H2 / starter-test，test scope）不在镜像内，go-offline 时跳过
+RUN mvn -s settings.xml -B -q dependency:go-offline -Dmaven.test.skip=true
 
 COPY src ./src
 RUN mvn -s settings.xml -B -q package -DskipTests

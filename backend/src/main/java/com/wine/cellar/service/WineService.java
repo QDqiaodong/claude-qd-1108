@@ -4,19 +4,23 @@ import java.math.BigDecimal;
 import java.util.List;
 
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import com.wine.cellar.common.BizException;
 import com.wine.cellar.common.Dict;
 import com.wine.cellar.entity.Wine;
+import com.wine.cellar.repository.CellarBatchRepository;
 import com.wine.cellar.repository.WineRepository;
 
 @Service
 public class WineService {
 
     private final WineRepository wineRepository;
+    private final CellarBatchRepository batchRepository;
 
-    public WineService(WineRepository wineRepository) {
+    public WineService(WineRepository wineRepository, CellarBatchRepository batchRepository) {
         this.wineRepository = wineRepository;
+        this.batchRepository = batchRepository;
     }
 
     // ---------------- 查询 ----------------
@@ -36,6 +40,12 @@ public class WineService {
 
     public Wine get(Long id) {
         return wineRepository.findById(id)
+                .orElseThrow(() -> new BizException("酒款不存在"));
+    }
+
+    /** 行锁读取酒款（库存联动时使用），调用方须在事务内 */
+    public Wine getLocked(Long id) {
+        return wineRepository.findLockingById(id)
                 .orElseThrow(() -> new BizException("酒款不存在"));
     }
 
@@ -63,8 +73,9 @@ public class WineService {
         if (!Dict.isValidWineType(input.type)) {
             throw new BizException("类型必须是：红/白/起泡/甜 之一");
         }
-        if (input.stock == null || input.stock < 0) {
-            throw new BizException("库存不能为负");
+        // 库存由窖藏批次联动：新酒款一律 0，放行批次后才有可售库存
+        if (input.stock != null && input.stock != 0) {
+            throw new BizException("酒款库存不能直接录入，请先新建窖藏批次并放行，库存将随批次自动增加");
         }
         if (input.price == null || input.price.compareTo(BigDecimal.ZERO) < 0) {
             throw new BizException("单价不能为负");
@@ -78,7 +89,7 @@ public class WineService {
         w.name = input.name;
         w.region = input.region;
         w.type = input.type;
-        w.stock = input.stock;
+        w.stock = 0;
         w.price = input.price;
         w.status = (input.status == null || input.status.isBlank()) ? "在售" : input.status;
         if (!Dict.isValidWineStatus(w.status)) {
@@ -117,11 +128,11 @@ public class WineService {
             }
             w.type = input.type;
         }
-        if (input.stock != null) {
-            if (input.stock < 0) {
-                throw new BizException("库存不能为负");
-            }
-            w.stock = input.stock;
+        if (input.stock != null && input.stock != w.stock) {
+            // 不允许绕过批次规则直接改酒款库存
+            throw new BizException(
+                    "酒款库存与窖藏批次联动，不能直接修改；如数据不一致，请使用「按批次校准库存」（当前账面 "
+                            + w.stock + "，提交值 " + input.stock + "）");
         }
         if (input.price != null) {
             if (input.price.compareTo(BigDecimal.ZERO) < 0) {
@@ -138,15 +149,17 @@ public class WineService {
         return wineRepository.save(w);
     }
 
-    // ---------------- 业务辅助：出窖扣库存校验 ----------------
-    /** 校验酒款可下单（在售且库存充足），并扣减库存。调用方需自行保存。 */
-    public void deductStock(Wine w, int qty) {
-        if (!"在售".equals(w.status)) {
-            throw new BizException("酒款「" + w.name + "」已停售，不可下单");
+    // ---------------- 库存校准：按各可售批次可用瓶数重算（数据不一致时的恢复入口） ----------------
+    @Transactional
+    public Wine reconcileStock(Long id) {
+        Wine w = getLocked(id);
+        int expected = batchRepository.findForUpdateByWineIdAndStatus(w.id, Dict.BATCH_SELLABLE).stream()
+                .mapToInt(b -> b.bottleCount - b.soldCount)
+                .sum();
+        if (w.stock == expected) {
+            throw new BizException("酒款「" + w.name + "」库存与批次可用瓶数一致（均为 " + expected + "），无需校准");
         }
-        if (w.stock < qty) {
-            throw new BizException("酒款「" + w.name + "」库存不足（仅剩 " + w.stock + "）");
-        }
-        w.stock -= qty;
+        w.stock = expected;
+        return wineRepository.save(w);
     }
 }

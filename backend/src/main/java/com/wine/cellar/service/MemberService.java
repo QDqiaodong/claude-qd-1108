@@ -32,6 +32,12 @@ public class MemberService {
                 .orElseThrow(() -> new BizException("会员不存在"));
     }
 
+    /** 行锁读取会员（出窖/退窖联动积分时使用），调用方须在事务内 */
+    public Member getLocked(Long id) {
+        return memberRepository.findLockingById(id)
+                .orElseThrow(() -> new BizException("会员不存在"));
+    }
+
     // ---------------- 新建 ----------------
     public static class MemberInput {
         public String phone;
@@ -101,11 +107,13 @@ public class MemberService {
     }
 
     // ---------------- 动作：累加积分（并自动升级等级） ----------------
+    /** 行锁内调整积分（delta 可为负），防止并发出窖/退窖丢失更新；积分不得为负 */
+    @org.springframework.transaction.annotation.Transactional
     public Member addPoints(Long id, int delta) {
-        Member m = get(id);
+        Member m = getLocked(id);
         int next = m.points + delta;
         if (next < 0) {
-            throw new BizException("积分扣减后将为负，操作不允许");
+            throw new BizException("会员「" + m.name + "」积分扣减后将为负，退窖失败（当前积分 " + m.points + "，应扣 " + (-delta) + "）");
         }
         m.points = next;
         m.level = Dict.decideMemberLevel(m.points);

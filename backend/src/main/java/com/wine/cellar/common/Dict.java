@@ -25,8 +25,13 @@ public final class Dict {
     /** 窖藏批次状态：窖藏中 / 可售 / 已售罄，逐级推进，不可跳级 */
     public static final List<String> CELLAR_BATCH_STATUS = List.of("窖藏中", "可售", "已售罄");
 
-    /** 窖藏批次状态机流转：窖藏中 → 可售（release）→ 已售罄 */
+    /** 窖藏批次正向推进顺序：窖藏中 → 可售 → 已售罄 */
     public static final List<String> CELLAR_BATCH_FLOW = List.of("窖藏中", "可售", "已售罄");
+
+    /** 批次状态名 */
+    public static final String BATCH_CELLARING = "窖藏中";
+    public static final String BATCH_SELLABLE = "可售";
+    public static final String BATCH_SOLD_OUT = "已售罄";
 
     // ---------------- 会员 member ----------------
     /** 会员等级：普通 / 银卡 / 黑卡 */
@@ -59,10 +64,20 @@ public final class Dict {
         return status != null && CELLAR_BATCH_STATUS.contains(status);
     }
 
-    /** 窖藏批次状态只能逐级推进：窖藏中 → 可售 → 已售罄 */
+    /**
+     * 窖藏批次合法状态转换（拒绝一切跳跃与反向手工流转）：
+     *   窖藏中 → 可售：放行
+     *   可售   → 已售罄：出窖扣完
+     *   已售罄 → 可售：退窖回补（仅此一种「回退」，且只由退窖触发）
+     */
     public static boolean canTransferBatch(String from, String to) {
-        int i = CELLAR_BATCH_FLOW.indexOf(from);
-        return i >= 0 && i + 1 < CELLAR_BATCH_FLOW.size() && CELLAR_BATCH_FLOW.get(i + 1).equals(to);
+        if (BATCH_CELLARING.equals(from) && BATCH_SELLABLE.equals(to)) {
+            return true;
+        }
+        if (BATCH_SELLABLE.equals(from) && BATCH_SOLD_OUT.equals(to)) {
+            return true;
+        }
+        return BATCH_SOLD_OUT.equals(from) && BATCH_SELLABLE.equals(to);
     }
 
     public static boolean isValidMemberLevel(String level) {

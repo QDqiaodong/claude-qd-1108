@@ -24,6 +24,9 @@ public class SaleOut {
     @Column(name = "total", nullable = false, precision = 12, scale = 2)
     public BigDecimal total;      // 出窖总额（自动计算）
 
+    @Column(name = "points_earned", nullable = false)
+    public Integer pointsEarned = 0;  // 本单实际产生积分（退窖按此精确回滚，散客为 0）
+
     @Column(name = "status", nullable = false, length = 16)
     public String status;         // 已出窖/已退窖
 

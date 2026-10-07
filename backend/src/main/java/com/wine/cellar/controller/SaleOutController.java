@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.wine.cellar.common.ApiResponse;
 import com.wine.cellar.entity.SaleOut;
+import com.wine.cellar.entity.SaleOutItem;
 import com.wine.cellar.service.SaleOutService;
 
 @RestController
@@ -27,6 +28,12 @@ public class SaleOutController {
     @GetMapping
     public ApiResponse<List<SaleOut>> list(@RequestParam(required = false) String status) {
         return ApiResponse.success(saleService.list(status));
+    }
+
+    /** 出窖单的逐批次扣减明细 */
+    @GetMapping("/{id}/items")
+    public ApiResponse<List<SaleOutItem>> items(@PathVariable Long id) {
+        return ApiResponse.success(saleService.items(id));
     }
 
     @PostMapping

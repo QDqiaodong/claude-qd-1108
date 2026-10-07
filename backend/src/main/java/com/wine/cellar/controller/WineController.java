@@ -42,4 +42,10 @@ public class WineController {
     public ApiResponse<Wine> update(@PathVariable Long id, @RequestBody WineService.WineInput input) {
         return ApiResponse.success(wineService.update(id, input));
     }
+
+    /** 库存校准：按各可售批次可用瓶数重算酒款库存（批次/酒款不一致时的恢复入口） */
+    @PostMapping("/{id}/reconcile-stock")
+    public ApiResponse<Wine> reconcileStock(@PathVariable Long id) {
+        return ApiResponse.success(wineService.reconcileStock(id));
+    }
 }

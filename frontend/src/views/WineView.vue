@@ -9,7 +9,9 @@ const STATUSES = ['在售', '停售']
 const STATUS_TAG = { '在售': 'success', '停售': 'info' }
 
 const all = ref([])
+const batches = ref([])
 const activeNames = ref([...REGIONS])
+const reconciling = ref(new Set())
 
 const grouped = computed(() =>
   REGIONS.map(r => ({
@@ -18,41 +20,75 @@ const grouped = computed(() =>
   })).filter(g => g.wines.length > 0)
 )
 
+// 每个酒款：各可售批次的可用瓶数合计（库存的唯一真实来源）
+const batchAvailableMap = computed(() => {
+  const m = {}
+  for (const b of batches.value) {
+    if (b.status === '可售') {
+      m[b.wineId] = (m[b.wineId] || 0) + (b.availableBottles || 0)
+    }
+  }
+  return m
+})
+const batchCountMap = computed(() => {
+  const m = {}
+  for (const b of batches.value) m[b.wineId] = (m[b.wineId] || 0) + 1
+  return m
+})
+function batchAvailable(w) { return batchAvailableMap.value[w.id] || 0 }
+function isInconsistent(w) { return w.stock !== batchAvailable(w) }
+
 const loading = ref(false)
 async function load() {
   loading.value = true
-  try { all.value = await api.listWines() } catch (e) { ElMessage.error(e.message) }
+  try {
+    const [w, b] = await Promise.all([api.listWines(), api.listCellarBatches()])
+    all.value = w; batches.value = b
+  } catch (e) { ElMessage.error(e.message) }
   finally { loading.value = false }
 }
 
-// ---------------- 新增 / 编辑 ----------------
+// ---------------- 新增 / 编辑（库存不可录入、不可修改，随批次联动） ----------------
 const dialog = ref(false)
 const editing = ref(null)
-const form = reactive({ code: '', name: '', region: '国产', type: '红', stock: 0, price: 0, status: '在售' })
+const form = reactive({ code: '', name: '', region: '国产', type: '红', price: 0, status: '在售' })
 
 function openCreate() {
   editing.value = null
-  Object.assign(form, { code: '', name: '', region: '国产', type: '红', stock: 0, price: 0, status: '在售' })
+  Object.assign(form, { code: '', name: '', region: '国产', type: '红', price: 0, status: '在售' })
   dialog.value = true
 }
 function openEdit(w) {
   editing.value = w.id
-  Object.assign(form, { code: w.code, name: w.name, region: w.region, type: w.type, stock: w.stock, price: w.price, status: w.status })
+  Object.assign(form, { code: w.code, name: w.name, region: w.region, type: w.type, price: w.price, status: w.status })
   dialog.value = true
 }
 async function submit() {
   try {
     if (editing.value) {
-      await api.updateWine(editing.value, { ...form })
+      // 回传当前库存：若后端账面与提交不一致会拒绝，防止绕过批次改库存
+      const current = all.value.find(w => w.id === editing.value)
+      await api.updateWine(editing.value, { ...form, stock: current.stock })
       ElMessage.success('已更新酒款')
     } else {
-      await api.createWine({ ...form })
-      ElMessage.success('已新增酒款')
+      await api.createWine({ ...form, stock: 0 })
+      ElMessage.success('已新增酒款（初始库存 0，放行窖藏批次后自动增加）')
     }
     dialog.value = false
     await load()
     emit('changed')
   } catch (e) { ElMessage.error(e.message) }
+}
+
+async function reconcile(w) {
+  if (reconciling.value.has(w.id)) return
+  reconciling.value.add(w.id)
+  try {
+    await api.reconcileWineStock(w.id)
+    ElMessage.success(`已按可售批次把「${w.name}」库存校准为 ${batchAvailable(w)} 瓶`)
+    await load(); emit('changed')
+  } catch (e) { ElMessage.error(e.message) }
+  finally { reconciling.value.delete(w.id) }
 }
 
 const emit = defineEmits(['changed'])
@@ -62,7 +98,7 @@ onMounted(load)
 <template>
   <div v-loading="loading">
     <div class="bar">
-      <span class="hint">按产区分组折叠查看酒款</span>
+      <span class="hint">按产区分组折叠查看酒款 · 库存随窖藏批次放行/出窖/退窖自动联动，不能直接修改</span>
       <el-button type="primary" @click="openCreate">新增酒款</el-button>
     </div>
 
@@ -78,11 +114,23 @@ onMounted(load)
               <div class="wine-meta">
                 <el-tag size="small" effect="plain">{{ w.type }}</el-tag>
                 <span class="price">¥{{ w.price }}</span>
-                <span class="stock">库存 {{ w.stock }}</span>
+                <span class="stock">
+                  库存 <strong :class="{ 'stock-num': true, 'stock-bad': isInconsistent(w) }">{{ w.stock }}</strong>
+                  <span class="stock-from">（{{ batchCountMap[w.id] || 0 }} 个批次，可售批次可用 {{ batchAvailable(w) }}）</span>
+                </span>
                 <el-tag size="small" :type="STATUS_TAG[w.status]">{{ w.status }}</el-tag>
+                <el-tag v-if="isInconsistent(w)" size="small" type="danger" effect="dark">批次库存不一致</el-tag>
               </div>
             </div>
-            <el-button size="small" @click="openEdit(w)">编辑</el-button>
+            <div class="wine-ops">
+              <el-button
+                v-if="isInconsistent(w)"
+                size="small" type="warning"
+                :loading="reconciling.has(w.id)"
+                @click="reconcile(w)"
+              >按批次校准库存</el-button>
+              <el-button size="small" @click="openEdit(w)">编辑</el-button>
+            </div>
           </li>
         </ul>
       </el-collapse-item>
@@ -100,7 +148,11 @@ onMounted(load)
         <el-form-item label="类型">
           <el-select v-model="form.type"><el-option v-for="t in TYPES" :key="t" :label="t" :value="t" /></el-select>
         </el-form-item>
-        <el-form-item label="库存"><el-input-number v-model="form.stock" :min="0" /></el-form-item>
+        <el-form-item label="库存">
+          <span class="stock-readonly">
+            {{ editing ? all.find(w => w.id === editing)?.stock : 0 }} 瓶（随窖藏批次联动，不可直接修改）
+          </span>
+        </el-form-item>
         <el-form-item label="单价"><el-input-number v-model="form.price" :min="0" :precision="2" :step="10" /></el-form-item>
         <el-form-item label="状态">
           <el-select v-model="form.status"><el-option v-for="s in STATUSES" :key="s" :label="s" :value="s" /></el-select>
@@ -115,17 +167,22 @@ onMounted(load)
 </template>
 
 <style scoped>
-.bar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.bar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; gap: 12px; }
 .hint { color: var(--muted); font-size: 13px; }
 .groups { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 0 8px; }
 .wine-list { list-style: none; margin: 0; padding: 0; }
 .wine-item {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 10px 8px; border-bottom: 1px dashed var(--line);
+  padding: 10px 8px; border-bottom: 1px dashed var(--line); gap: 12px;
 }
 .wine-item:last-child { border-bottom: none; }
 .wine-name { display: flex; align-items: center; gap: 10px; }
 .code { color: var(--muted); font-size: 12px; font-family: monospace; }
-.wine-meta { margin-top: 4px; display: flex; align-items: center; gap: 14px; color: var(--muted); font-size: 12px; }
+.wine-meta { margin-top: 4px; display: flex; align-items: center; gap: 14px; color: var(--muted); font-size: 12px; flex-wrap: wrap; }
 .price { color: var(--primary); font-weight: 700; }
+.stock-num { color: var(--ink); }
+.stock-bad { color: #e44; }
+.stock-from { color: var(--muted); }
+.wine-ops { display: flex; gap: 8px; flex-shrink: 0; }
+.stock-readonly { color: var(--muted); font-size: 13px; }
 </style>

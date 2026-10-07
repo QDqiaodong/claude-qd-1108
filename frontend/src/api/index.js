@@ -30,6 +30,7 @@ export default {
   ))),
   createWine: (d) => call(http.post('/wines', d)),
   updateWine: (id, d) => call(http.put(`/wines/${id}`, d)),
+  reconcileWineStock: (id) => call(http.post(`/wines/${id}/reconcile-stock`)),
 
   // ---------------- 窖藏批次 cellar_batch ----------------
   listCellarBatches: (status) => call(http.get('/cellar-batches', params(status ? { status } : {}))),
@@ -45,6 +46,7 @@ export default {
 
   // ---------------- 销售出窖 sale_out ----------------
   listSaleOuts: (status) => call(http.get('/sale-outs', params(status ? { status } : {}))),
+  listSaleOutItems: (id) => call(http.get(`/sale-outs/${id}/items`)),
   createSaleOut: (d) => call(http.post('/sale-outs', d)),
   refundSaleOut: (id) => call(http.post(`/sale-outs/${id}/refund`))
 }

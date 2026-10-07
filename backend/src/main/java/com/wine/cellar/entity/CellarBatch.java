@@ -9,6 +9,7 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.persistence.Transient;
 
 @Entity
 @Table(name = "cellar_batch")
@@ -25,7 +26,10 @@ public class CellarBatch {
     public String batchNo;         // 批次号
 
     @Column(name = "bottle_count", nullable = false)
-    public Integer bottleCount;    // 瓶数
+    public Integer bottleCount;    // 总瓶数
+
+    @Column(name = "sold_count", nullable = false)
+    public Integer soldCount = 0;  // 已出窖扣减瓶数（联动维护）
 
     @Column(name = "cellar_date", nullable = false)
     public LocalDate cellarDate;   // 入窖日
@@ -35,4 +39,10 @@ public class CellarBatch {
 
     @Column(name = "created_at")
     public LocalDateTime createdAt = LocalDateTime.now();
+
+    /** 可用瓶数 = 总瓶数 - 已扣减瓶数 */
+    @Transient
+    public int getAvailableBottles() {
+        return bottleCount - soldCount;
+    }
 }
