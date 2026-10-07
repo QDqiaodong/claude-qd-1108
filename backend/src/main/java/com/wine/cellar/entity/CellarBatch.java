@@ -25,10 +25,13 @@ public class CellarBatch {
     public String batchNo;         // 批次号
 
     @Column(name = "bottle_count", nullable = false)
-    public Integer bottleCount;    // 瓶数
+    public Integer bottleCount;    // 入窖瓶数
+
+    @Column(name = "available_bottles", nullable = false)
+    public Integer availableBottles = 0;  // 剩余可用瓶数（可售批次联动；窖藏中/已售罄恒为 0）
 
     @Column(name = "cellar_date", nullable = false)
-    public LocalDate cellarDate;   // 入窖日
+    public LocalDate cellarDate;   // 入窖日（FEFO 先后依据）
 
     @Column(name = "status", nullable = false, length = 16)
     public String status;          // 窖藏中/可售/已售罄

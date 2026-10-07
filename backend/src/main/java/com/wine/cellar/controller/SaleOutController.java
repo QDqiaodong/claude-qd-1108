@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.RestController;
 import com.wine.cellar.common.ApiResponse;
 import com.wine.cellar.entity.SaleOut;
 import com.wine.cellar.service.SaleOutService;
+import com.wine.cellar.service.SaleOutService.SaleOutVO;
 
 @RestController
 @RequestMapping("/api/sale-outs")
@@ -25,7 +26,7 @@ public class SaleOutController {
     }
 
     @GetMapping
-    public ApiResponse<List<SaleOut>> list(@RequestParam(required = false) String status) {
+    public ApiResponse<List<SaleOutVO>> list(@RequestParam(required = false) String status) {
         return ApiResponse.success(saleService.list(status));
     }
 

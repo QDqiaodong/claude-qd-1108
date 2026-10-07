@@ -32,6 +32,24 @@ public class MemberService {
                 .orElseThrow(() -> new BizException("会员不存在"));
     }
 
+    /** 按 id 取会员（可能已停用/删除），供拼出窖单视图，不抛错 */
+    public java.util.Optional<Member> findIfExists(Long id) {
+        return memberRepository.findById(id);
+    }
+
+    /** 校验会员存在（不加载实体，避免污染后续加积分的锁定当前读） */
+    public void assertExists(Long id) {
+        if (!memberRepository.existsById(id)) {
+            throw new BizException("会员不存在");
+        }
+    }
+
+    /** 只读取积分（投影），供退窖前预检积分是否够扣 */
+    public int getPoints(Long id) {
+        return memberRepository.findPointsById(id)
+                .orElseThrow(() -> new BizException("会员不存在"));
+    }
+
     // ---------------- 新建 ----------------
     public static class MemberInput {
         public String phone;
@@ -102,7 +120,8 @@ public class MemberService {
 
     // ---------------- 动作：累加积分（并自动升级等级） ----------------
     public Member addPoints(Long id, int delta) {
-        Member m = get(id);
+        Member m = memberRepository.findWithLockById(id)
+                .orElseThrow(() -> new BizException("会员不存在"));
         int next = m.points + delta;
         if (next < 0) {
             throw new BizException("积分扣减后将为负，操作不允许");

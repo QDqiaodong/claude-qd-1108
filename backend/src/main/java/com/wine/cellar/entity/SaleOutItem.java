@@ -21,6 +21,9 @@ public class SaleOutItem {
     @Column(name = "wine_id", nullable = false)
     public Long wineId;           // 关联酒款
 
+    @Column(name = "batch_id", nullable = false)
+    public Long batchId;          // 实际扣减的窖藏批次（退窖按此原批次回补）
+
     @Column(name = "qty", nullable = false)
     public Integer qty;           // 数量
 }

@@ -63,8 +63,8 @@ public class WineService {
         if (!Dict.isValidWineType(input.type)) {
             throw new BizException("类型必须是：红/白/起泡/甜 之一");
         }
-        if (input.stock == null || input.stock < 0) {
-            throw new BizException("库存不能为负");
+        if (input.stock != null && input.stock != 0) {
+            throw new BizException("新酒款可售库存必须为 0：请先在「窖藏批次」新建批次并放行，库存由批次联动产生");
         }
         if (input.price == null || input.price.compareTo(BigDecimal.ZERO) < 0) {
             throw new BizException("单价不能为负");
@@ -78,7 +78,7 @@ public class WineService {
         w.name = input.name;
         w.region = input.region;
         w.type = input.type;
-        w.stock = input.stock;
+        w.stock = 0;   // 库存只能来自放行批次
         w.price = input.price;
         w.status = (input.status == null || input.status.isBlank()) ? "在售" : input.status;
         if (!Dict.isValidWineStatus(w.status)) {
@@ -117,11 +117,8 @@ public class WineService {
             }
             w.type = input.type;
         }
-        if (input.stock != null) {
-            if (input.stock < 0) {
-                throw new BizException("库存不能为负");
-            }
-            w.stock = input.stock;
+        if (input.stock != null && input.stock != w.stock) {
+            throw new BizException("可售库存由窖藏批次联动（放行增加、出窖扣减、退窖回补），不可直接修改");
         }
         if (input.price != null) {
             if (input.price.compareTo(BigDecimal.ZERO) < 0) {
@@ -136,17 +133,5 @@ public class WineService {
             w.status = input.status;
         }
         return wineRepository.save(w);
-    }
-
-    // ---------------- 业务辅助：出窖扣库存校验 ----------------
-    /** 校验酒款可下单（在售且库存充足），并扣减库存。调用方需自行保存。 */
-    public void deductStock(Wine w, int qty) {
-        if (!"在售".equals(w.status)) {
-            throw new BizException("酒款「" + w.name + "」已停售，不可下单");
-        }
-        if (w.stock < qty) {
-            throw new BizException("酒款「" + w.name + "」库存不足（仅剩 " + w.stock + "）");
-        }
-        w.stock -= qty;
     }
 }
